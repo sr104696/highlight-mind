@@ -19,15 +19,17 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mountRef = useRef<HTMLDivElement>(null);
   const pageEls = useRef<HTMLDivElement[]>([]);
   const [numPages, setNumPages] = useState(0);
 
   useEffect(() => {
-    if (!data || !containerRef.current) return;
+    if (!data || !mountRef.current) return;
     let cancelled = false;
-    const container = containerRef.current;
-    container.innerHTML = "";
+    const container = mountRef.current;
+    while (container.firstChild) container.removeChild(container.firstChild);
     pageEls.current = [];
+    setNumPages(0);
 
     (async () => {
       const pdf = await pdfjs.getDocument({ data: data.slice(0) }).promise;
@@ -64,6 +66,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
 
     return () => {
       cancelled = true;
+      if (mountRef.current) {
+        while (mountRef.current.firstChild)
+          mountRef.current.removeChild(mountRef.current.firstChild);
+      }
+      pageEls.current = [];
     };
   }, [data]);
 
@@ -95,6 +102,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
       ref={containerRef}
       className="h-full overflow-y-auto bg-secondary/30 px-4 py-2 scroll-smooth"
     >
+      <div ref={mountRef} />
       {!data && (
         <div className="h-full flex items-center justify-center text-muted-foreground">
           <p className="text-sm">Upload a PDF to begin</p>
