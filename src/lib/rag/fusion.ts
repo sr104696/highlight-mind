@@ -7,7 +7,8 @@ export function rrf(lists: RankedChunk[][], k = 60): RankedChunk[] {
     list.forEach((item, rank) => {
       const key = item.id;
       scores.set(key, (scores.get(key) || 0) + 1 / (k + rank + 1));
-      if (!payload.has(key)) payload.set(key, item);
+      // Bug #11: always overwrite — RRF score is what matters.
+      payload.set(key, item);
     });
   }
   return [...scores.entries()]
