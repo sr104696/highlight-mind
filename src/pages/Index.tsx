@@ -28,12 +28,12 @@ const Index = () => {
     setHits([]);
     setFileName(file.name);
     try {
-      const buf = await file.arrayBuffer();
-      setPdfData(buf.slice(0));
+      // Bug #5: read the file once inside engine.ingest; reuse pristine copy.
       await engine.ingest(file, (msg, pct) => {
         setStatus(msg);
         if (typeof pct === "number") setProgress(pct);
       });
+      setPdfData(engine.pdfBytes!.slice(0));
       setReady(true);
       toast({ title: "Document indexed", description: `${engine.chunks.length} chunks across ${engine.pages.length} pages` });
     } catch (e: any) {

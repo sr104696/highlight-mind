@@ -33,12 +33,25 @@ export function slidingChunks(
     while (i < toks.length) {
       const window = toks.slice(i, i + targetTokens);
       if (!window.length) break;
+      // Bug #7: group consecutive tokens sharing source bbox into lines.
+      const lineMap = new Map<string, { text: string[]; bbox: BBox }>();
+      for (const w of window) {
+        const key = w.bbox.join(",");
+        const cur = lineMap.get(key);
+        if (cur) cur.text.push(w.tok);
+        else lineMap.set(key, { text: [w.tok], bbox: w.bbox });
+      }
+      const lines = [...lineMap.values()].map((l) => ({
+        text: l.text.join(" "),
+        bbox: l.bbox,
+      }));
       out.push({
         id: id++,
         docId,
         pageIndex: page.pageIndex,
         text: window.map((w) => w.tok).join(" "),
         bbox: unionBBox(window.map((w) => w.bbox)),
+        lines,
       });
       if (i + targetTokens >= toks.length) break;
       i += step;

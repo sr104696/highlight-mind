@@ -1,6 +1,6 @@
 import { extractPages, loadPdf } from "./parser";
 import { slidingChunks } from "./chunker";
-import { BM25 } from "./bm25";
+import { BM25, tokenize } from "./bm25";
 import { embedTexts, embedQuery, rerank, ProgressCb } from "./embedder";
 import { rrf, cosineSearch } from "./fusion";
 import type { Chunk, PageData, RankedChunk } from "./types";
@@ -14,10 +14,11 @@ export class RagEngine {
 
   async ingest(file: File, onProgress: ProgressCb) {
     onProgress("Reading PDF…", 0);
+    // Bug #5: keep a pristine copy; pdfjs may detach the buffer it consumes.
     const buf = await file.arrayBuffer();
-    this.pdfBytes = buf;
+    this.pdfBytes = buf.slice(0);
     this.docId = `${file.name}-${file.size}`;
-    const pdf = await loadPdf(buf.slice(0));
+    const pdf = await loadPdf(buf);
     onProgress(`Parsing ${pdf.numPages} pages…`, 5);
     this.pages = await extractPages(pdf);
     onProgress("Chunking…", 25);
@@ -35,19 +36,42 @@ export class RagEngine {
 
   async search(query: string, k = 5): Promise<RankedChunk[]> {
     if (!this.bm25 || !this.chunks.length) return [];
+    // Bug #6: O(1) id lookup.
+    const byId = new Map(this.chunks.map((c) => [c.id, c]));
+
     const lex = this.bm25.search(query, 20);
     const qv = await embedQuery(query);
-    const sem = cosineSearch(qv, this.chunks, 20).map((s) => ({
-      ...this.chunks[this.chunks.findIndex((c) => c.id === s.id)],
-      score: s.score,
-    }));
+    const semRaw = cosineSearch(qv, this.chunks, 20);
+    const sem: RankedChunk[] = semRaw
+      .map((s) => {
+        const c = byId.get(s.id);
+        return c ? { ...c, score: s.score } : null;
+      })
+      .filter(Boolean) as RankedChunk[];
+
     const fused = rrf([lex, sem]).slice(0, 20);
-    if (fused.length === 0) return [];
-    const scores = await rerank(query, fused.map((f) => f.text));
+    if (!fused.length) return [];
+    const ceScores = await rerank(query, fused.map((f) => f.text));
     const reranked = fused
-      .map((f, i) => ({ ...f, score: scores[i] ?? f.score }))
+      .map((f, i) => ({ ...f, score: ceScores[i] ?? f.score }))
       .sort((a, b) => b.score - a.score)
       .slice(0, k);
-    return reranked;
+
+    // Bug #7: pick the best line per hit by query-token overlap.
+    const qToks = new Set(tokenize(query));
+    return reranked.map((r) => {
+      if (!r.lines?.length) return r;
+      let best = r.lines[0];
+      let bestScore = -1;
+      for (const ln of r.lines) {
+        const lt = tokenize(ln.text);
+        const overlap = lt.filter((t) => qToks.has(t)).length;
+        if (overlap > bestScore) {
+          bestScore = overlap;
+          best = ln;
+        }
+      }
+      return { ...r, bbox: best.bbox };
+    });
   }
 }

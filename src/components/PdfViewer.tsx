@@ -1,9 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { pdfjs } from "@/lib/rag/pdf-worker";
 import type { BBox } from "@/lib/rag/types";
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export interface PdfViewerHandle {
   highlight: (pageIndex: number, bbox: BBox) => void;
@@ -37,29 +34,29 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
       setNumPages(pdf.numPages);
       for (let p = 1; p <= pdf.numPages; p++) {
         const page = await pdf.getPage(p);
+        // Bug #3: viewport already incorporates dpr; do not ctx.scale.
         const dpr = window.devicePixelRatio || 1;
         const baseScale = 1.4;
-        const viewport = page.getViewport({ scale: baseScale });
+        const viewport = page.getViewport({ scale: baseScale * dpr });
         const canvas = document.createElement("canvas");
-        canvas.width = viewport.width * dpr;
-        canvas.height = viewport.height * dpr;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = `${viewport.width / dpr}px`;
+        canvas.style.height = `${viewport.height / dpr}px`;
         canvas.style.display = "block";
 
         const wrap = document.createElement("div");
         wrap.className =
           "relative mx-auto my-3 shadow-2xl rounded-sm overflow-hidden bg-card border border-border";
-        wrap.style.width = `${viewport.width}px`;
-        wrap.style.height = `${viewport.height}px`;
+        wrap.style.width = `${viewport.width / dpr}px`;
+        wrap.style.height = `${viewport.height / dpr}px`;
         wrap.dataset.page = String(p - 1);
         wrap.appendChild(canvas);
         container.appendChild(wrap);
         pageEls.current.push(wrap);
 
         const ctx = canvas.getContext("2d")!;
-        ctx.scale(dpr, dpr);
-        await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+        await page.render({ canvasContext: ctx, viewport }).promise;
         if (cancelled) return;
       }
     })();
