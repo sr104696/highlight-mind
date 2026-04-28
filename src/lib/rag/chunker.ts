@@ -45,11 +45,13 @@ export function slidingChunks(
         text: l.text.join(" "),
         bbox: l.bbox,
       }));
+      const fullText = window.map((w) => w.tok).join(" ");
+      const safeText = fullText.length > 1800 ? fullText.slice(0, 1800) : fullText;
       out.push({
         id: id++,
         docId,
         pageIndex: page.pageIndex,
-        text: window.map((w) => w.tok).join(" "),
+        text: safeText,
         bbox: unionBBox(window.map((w) => w.bbox)),
         lines,
       });
