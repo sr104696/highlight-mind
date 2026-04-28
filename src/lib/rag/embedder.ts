@@ -21,6 +21,15 @@ let rerankerPromise: Promise<any> | null = null;
 
 export type ProgressCb = (msg: string, pct?: number) => void;
 
+async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) =>
+      setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 export function getEmbedder(onProgress?: ProgressCb) {
   if (!embedderPromise) {
     embedderPromise = pipeline(
@@ -65,22 +74,42 @@ export async function embedTexts(
 ): Promise<Float32Array[]> {
   const ext = await getEmbedder(onProgress);
   const out: Float32Array[] = [];
-  const batch = 8;
+  const batch = 4; // smaller batch = lower peak memory, smoother progress
   for (let i = 0; i < texts.length; i += batch) {
     const slice = texts.slice(i, i + batch);
-    const res = await ext(slice, { pooling: "mean", normalize: true });
-    // Bug #1: index-based copy avoids byteOffset corruption across batch items.
+    let res: any;
+    try {
+      res = await withTimeout(
+        ext(slice, {
+          pooling: "mean",
+          normalize: true,
+          truncation: true,
+          max_length: 512,
+        }),
+        30000,
+        `Embed batch ${i}`
+      );
+    } catch (err) {
+      console.warn(`[embedder] batch ${i} failed, zero-padding:`, err);
+      const dim = 384; // bge-small-en-v1.5
+      for (let j = 0; j < slice.length; j++) out.push(new Float32Array(dim));
+      const done = Math.min(i + batch, texts.length);
+      onProgress?.(`Embedded ${done}/${texts.length}`, (done / texts.length) * 100);
+      await new Promise((r) => setTimeout(r, 0));
+      continue;
+    }
     const dim = res.dims[res.dims.length - 1];
-    const data = res.data as Float32Array;
-    const flat = Array.from(data);
+    const flat = Array.from(res.data as Float32Array);
     for (let j = 0; j < slice.length; j++) {
       const v = new Float32Array(dim);
       for (let d = 0; d < dim; d++) v[d] = flat[j * dim + d];
       out.push(v);
     }
-    // Bug #9: pass percent so progress bar advances during embedding.
+    if (typeof (res as any).dispose === "function") (res as any).dispose();
     const done = Math.min(i + batch, texts.length);
     onProgress?.(`Embedded ${done}/${texts.length}`, (done / texts.length) * 100);
+    // Yield to the event loop — repaints progress, prevents "page unresponsive"
+    await new Promise((r) => setTimeout(r, 0));
   }
   return out;
 }

@@ -18,7 +18,7 @@ export class BM25 {
   private avgdl = 0;
   private df = new Map<string, number>();
   private idf = new Map<string, number>();
-  private docs: { tokens: string[]; tf: Map<string, number>; len: number }[] = [];
+  private docs: { tokens?: string[]; tf: Map<string, number>; len: number }[] = [];
 
   constructor(private chunks: Chunk[]) {
     let total = 0;
@@ -36,6 +36,8 @@ export class BM25 {
     for (const [t, df] of this.df) {
       this.idf.set(t, Math.log(1 + (N - df + 0.5) / (df + 0.5)));
     }
+    // Free tokenized strings — only tf and len are needed at search time.
+    for (const d of this.docs) d.tokens = undefined;
   }
 
   search(query: string, topN: number): RankedChunk[] {
