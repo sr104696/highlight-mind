@@ -11,10 +11,9 @@ env.allowRemoteModels = true;
 // Bug #10: persist ONNX weights in CacheStorage; tune wasm threads.
 env.useBrowserCache = true;
 if (env.backends?.onnx?.wasm) {
-  env.backends.onnx.wasm.numThreads = Math.min(
-    4,
-    (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 2
-  );
+  env.backends.onnx.wasm.numThreads = (self as any).crossOriginIsolated
+    ? Math.min(4, navigator.hardwareConcurrency || 2)
+    : 1;
 }
 
 let embedderPromise: Promise<any> | null = null;
