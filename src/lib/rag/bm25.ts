@@ -6,8 +6,15 @@ const STOP = new Set(
   )
 );
 
+// Normalize: collapse intra-word hyphens (gpt-4 → gpt4) and split camelCase.
+export function normalize(s: string): string {
+  return s
+    .replace(/([a-z0-9])-([a-z0-9])/gi, "$1$2")
+    .replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 export function tokenize(s: string): string[] {
-  return (s.toLowerCase().match(/[a-z0-9]+/g) || []).filter(
+  return (normalize(s).toLowerCase().match(/[a-z0-9]+/g) || []).filter(
     (t) => t.length > 1 && !STOP.has(t)
   );
 }
@@ -18,7 +25,7 @@ export class BM25 {
   private avgdl = 0;
   private df = new Map<string, number>();
   private idf = new Map<string, number>();
-  private docs: { tokens?: string[]; tf: Map<string, number>; len: number }[] = [];
+  private docs: { tf: Map<string, number>; len: number }[] = [];
 
   constructor(private chunks: Chunk[]) {
     let total = 0;
@@ -26,7 +33,7 @@ export class BM25 {
       const toks = tokenize(c.text);
       const tf = new Map<string, number>();
       for (const t of toks) tf.set(t, (tf.get(t) || 0) + 1);
-      this.docs.push({ tokens: toks, tf, len: toks.length });
+      this.docs.push({ tf, len: toks.length });
       total += toks.length;
       const seen = new Set(toks);
       for (const t of seen) this.df.set(t, (this.df.get(t) || 0) + 1);
@@ -36,8 +43,6 @@ export class BM25 {
     for (const [t, df] of this.df) {
       this.idf.set(t, Math.log(1 + (N - df + 0.5) / (df + 0.5)));
     }
-    // Free tokenized strings — only tf and len are needed at search time.
-    for (const d of this.docs) d.tokens = undefined;
   }
 
   search(query: string, topN: number): RankedChunk[] {
