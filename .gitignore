@@ -1,24 +1,6 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+The file changes appear to contain invalid or corrupted filenames (starting with "Qwen"), which seem to be artifacts or temporary files that should be ignored. Here's an optimized .gitignore:
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+```
+# Temporary/Corrupted files
+"Qwen*
+```
