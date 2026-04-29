@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --hl-yellow: #fde68a;
+  --hl-green:  #bbf7d0;
+  --hl-pink:   #fbcfe8;
+  --hl-blue:   #bfdbfe;
+}
+
+html, body, #root { height: 100%; }
+body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+
+.prose-snippet mark {
+  background: var(--hl-yellow);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.pdf-page {
+  position: relative;
+  margin: 0 auto 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  background: white;
+}
+
+.hl-layer {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+.hl-rect {
+  position: absolute;
+  mix-blend-mode: multiply;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+}
