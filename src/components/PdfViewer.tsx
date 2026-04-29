@@ -59,9 +59,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
         pageEls.current.push(wrap);
 
         const ctx = canvas.getContext("2d")!;
-        // pdf.js v5: pass canvasContext only (passing both canvas+canvasContext
-        // emits a deprecation warning).
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvas, canvasContext: ctx, viewport }).promise;
         if (cancelled) return;
       }
     })();
