@@ -97,16 +97,22 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
   return (
     <div
       ref={containerRef}
-      className="h-full overflow-y-auto bg-secondary/30 px-4 py-2 scroll-smooth"
+      className="h-full overflow-y-auto bg-secondary/30 px-4 py-2 scroll-smooth flex flex-col [scrollbar-gutter:stable]"
     >
       <div ref={mountRef} />
       {!data && (
-        <div className="h-full flex items-center justify-center text-muted-foreground">
+        <div
+          className="flex-1 flex items-center justify-center text-muted-foreground"
+          aria-live="polite"
+        >
           <p className="text-sm">Upload a PDF to begin</p>
         </div>
       )}
       {data && numPages === 0 && (
-        <div className="h-full flex items-center justify-center text-muted-foreground">
+        <div
+          className="flex-1 flex items-center justify-center text-muted-foreground"
+          aria-live="polite"
+        >
           <p className="text-sm animate-pulse">Rendering pages…</p>
         </div>
       )}
