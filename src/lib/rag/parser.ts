@@ -44,7 +44,7 @@ export async function extractPages(
       const scaleX = Math.hypot(m[0], m[1]) || 1;
       const w = Math.max(0, (it.width ?? str.length * fontHeight * 0.5) * scaleX);
       const h = fontHeight;
-      if (process.env.NODE_ENV !== "production" && (x < -1 || x > W + 1 || y < -1 || y > H + 1)) {
+      if (import.meta.env.DEV && (x < -1 || x > W + 1 || y < -1 || y > H + 1)) {
         // eslint-disable-next-line no-console
         console.warn("[parser] out-of-bounds glyph", { x, y, W, H, str: str.slice(0, 20) });
       }
