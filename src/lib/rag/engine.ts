@@ -11,18 +11,37 @@ export class RagEngine {
   private bm25: BM25 | null = null;
   docId = "";
   pdfBytes: ArrayBuffer | null = null;
+  private _version = 0;
 
   async ingest(file: File, onProgress: ProgressCb) {
+    const myVersion = ++this._version;
     onProgress("Reading PDF…", 0);
     // Bug #5: keep a pristine copy; pdfjs may detach the buffer it consumes.
     const buf = await file.arrayBuffer();
     this.pdfBytes = buf.slice(0);
     this.docId = `${file.name}-${file.size}`;
     const pdf = await loadPdf(buf);
+    if (this._version !== myVersion) return;
     onProgress(`Parsing ${pdf.numPages} pages…`, 5);
     this.pages = await extractPages(pdf);
+    if (this._version !== myVersion) return;
     onProgress("Chunking…", 25);
     this.chunks = slidingChunks(this.pages, this.docId);
+    if (this.chunks.length === 0) {
+      throw new Error(
+        "No text could be extracted from this PDF. It may be a scanned image. " +
+        "Run it through an OCR tool (e.g. Adobe Acrobat, Tesseract) and re-upload the OCR'd version."
+      );
+    }
+    const pagesWithChunks = new Set(this.chunks.map((c) => c.pageIndex));
+    const emptyPages = this.pages.filter(
+      (p) => !pagesWithChunks.has(p.pageIndex) && p.items.length > 0
+    );
+    if (emptyPages.length > 0) {
+      console.warn(
+        `[RagEngine] ${emptyPages.length} pages had text items but produced no chunks (encoding issue?)`
+      );
+    }
     onProgress(`Indexing BM25 (${this.chunks.length} chunks)…`, 35);
     this.bm25 = new BM25(this.chunks);
     onProgress("Computing semantic embeddings…", 45);
@@ -30,6 +49,7 @@ export class RagEngine {
       this.chunks.map((c) => c.text),
       (m, p) => onProgress(m, 45 + (p ?? 0) * 0.5)
     );
+    if (this._version !== myVersion) return;
     for (let i = 0; i < this.chunks.length; i++) this.chunks[i].vector = vecs[i];
     onProgress("Ready", 100);
   }
@@ -51,9 +71,15 @@ export class RagEngine {
 
     const fused = rrf([lex, sem]).slice(0, 20);
     if (!fused.length) return [];
-    const ceScores = await rerank(query, fused.map((f) => f.text));
+    let ceScores: number[] = [];
+    try {
+      ceScores = await rerank(query, fused.map((f) => f.text));
+    } catch (e) {
+      console.warn("[engine] rerank failed, falling back to RRF order:", e);
+    }
+    const useCE = ceScores.length === fused.length;
     const reranked = fused
-      .map((f, i) => ({ ...f, score: ceScores[i] ?? f.score }))
+      .map((f, i) => ({ ...f, score: useCE ? ceScores[i] : f.score }))
       .sort((a, b) => b.score - a.score)
       .slice(0, k);
 
