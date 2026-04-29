@@ -37,7 +37,15 @@ const Index = () => {
       setReady(true);
       toast({ title: "Document indexed", description: `${engine.chunks.length} chunks across ${engine.pages.length} pages` });
     } catch (e: any) {
-      toast({ title: "Ingest failed", description: e.message, variant: "destructive" });
+      const isPassword =
+        e?.name === "PasswordException" || e?.code === 1 || e?.code === 2;
+      toast({
+        title: isPassword ? "Password-protected PDF" : "Ingest failed",
+        description: isPassword
+          ? "This PDF requires a password. Open it in a PDF reader and re-export as an unlocked PDF."
+          : e?.message || "Unknown error",
+        variant: "destructive",
+      });
     } finally {
       setBusy(false);
     }
