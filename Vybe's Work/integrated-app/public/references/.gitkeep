@@ -1,0 +1,2 @@
+# This directory is populated by `npm run sync-references`.
+# It mirrors the parent repo's `gitingest outputs/` as `.md` files plus a `manifest.json`.
