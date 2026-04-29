@@ -29,7 +29,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
     setNumPages(0);
 
     (async () => {
-      const pdf = await pdfjs.getDocument({ data: data.slice(0) }).promise;
+      // Wrap a fresh slice in Uint8Array so pdf.js can detach its own copy
+      // without affecting the caller's ArrayBuffer (StrictMode double-effect safe).
+      const bytes = new Uint8Array(data.slice(0));
+      const pdf = await pdfjs.getDocument({ data: bytes }).promise;
       if (cancelled) return;
       setNumPages(pdf.numPages);
       for (let p = 1; p <= pdf.numPages; p++) {
@@ -86,7 +89,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
       overlay.style.width = `${Math.min(1, w + pad * 2) * 100}%`;
       overlay.style.height = `${Math.min(1, h + pad * 2) * 100}%`;
       el.appendChild(overlay);
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Scroll the highlight itself into view (centered) so deeply-placed
+      // matches don't sit below the visible scroll area.
+      overlay.scrollIntoView({ behavior: "smooth", block: "center" });
     },
     clearHighlights() {
       for (const el of pageEls.current)
