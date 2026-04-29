@@ -1,126 +1,191 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { pdfjs } from "@/lib/rag/pdf-worker";
 import type { BBox } from "@/lib/rag/types";
 
 export interface PdfViewerHandle {
   highlight: (pageIndex: number, bbox: BBox) => void;
   clearHighlights: () => void;
+  goToPage: (pageIndex: number) => void;
 }
 
 interface Props {
   data: ArrayBuffer | null;
+  docId?: string;
 }
 
-export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
-  { data },
-  ref
-) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mountRef = useRef<HTMLDivElement>(null);
-  const pageEls = useRef<HTMLDivElement[]>([]);
-  const [numPages, setNumPages] = useState(0);
+interface PageSlot {
+  wrap: HTMLDivElement;
+  rendered: boolean;
+  rendering: boolean;
+  page: any;
+  viewport: any;
+  dpr: number;
+}
 
-  useEffect(() => {
-    if (!data || !mountRef.current) return;
-    let cancelled = false;
-    const container = mountRef.current;
-    while (container.firstChild) container.removeChild(container.firstChild);
-    pageEls.current = [];
-    setNumPages(0);
+export const PdfViewer = memo(
+  forwardRef<PdfViewerHandle, Props>(function PdfViewer({ data, docId }, ref) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const mountRef = useRef<HTMLDivElement>(null);
+    const slots = useRef<PageSlot[]>([]);
+    const [numPages, setNumPages] = useState(0);
+    const lastDocIdRef = useRef<string | undefined>(undefined);
 
-    (async () => {
-      // Wrap a fresh slice in Uint8Array so pdf.js can detach its own copy
-      // without affecting the caller's ArrayBuffer (StrictMode double-effect safe).
-      const bytes = new Uint8Array(data.slice(0));
-      const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-      if (cancelled) return;
-      setNumPages(pdf.numPages);
-      for (let p = 1; p <= pdf.numPages; p++) {
-        const page = await pdf.getPage(p);
-        // Bug #3: viewport already incorporates dpr; do not ctx.scale.
+    useEffect(() => {
+      if (!data || !mountRef.current) return;
+      // Memo guard — same docId, skip re-render
+      if (docId && docId === lastDocIdRef.current) return;
+      lastDocIdRef.current = docId;
+      let cancelled = false;
+      const container = mountRef.current;
+      while (container.firstChild) container.removeChild(container.firstChild);
+      slots.current = [];
+      setNumPages(0);
+
+      (async () => {
+        const bytes = new Uint8Array(data.slice(0));
+        const cMapUrl = new URL("pdfjs-dist/cmaps/", import.meta.url).href;
+        const pdf = await pdfjs.getDocument({
+          data: bytes,
+          isEvalSupported: false,
+          cMapUrl,
+          cMapPacked: true,
+        }).promise;
+        if (cancelled) return;
+        setNumPages(pdf.numPages);
         const dpr = window.devicePixelRatio || 1;
         const baseScale = 1.4;
-        const viewport = page.getViewport({ scale: baseScale * dpr });
-        const canvas = document.createElement("canvas");
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        canvas.style.width = `${viewport.width / dpr}px`;
-        canvas.style.height = `${viewport.height / dpr}px`;
-        canvas.style.display = "block";
 
-        const wrap = document.createElement("div");
-        wrap.className =
-          "relative mx-auto my-3 shadow-2xl rounded-sm overflow-hidden bg-card border border-border";
-        wrap.style.width = `${viewport.width / dpr}px`;
-        wrap.style.height = `${viewport.height / dpr}px`;
-        wrap.dataset.page = String(p - 1);
-        wrap.appendChild(canvas);
-        container.appendChild(wrap);
-        pageEls.current.push(wrap);
+        // Pre-create empty placeholder wrappers with correct dimensions
+        for (let p = 1; p <= pdf.numPages; p++) {
+          const page = await pdf.getPage(p);
+          if (cancelled) return;
+          const viewport = page.getViewport({ scale: baseScale * dpr });
+          const wrap = document.createElement("div");
+          wrap.className =
+            "relative mx-auto my-3 shadow-2xl rounded-sm overflow-hidden bg-card border border-border";
+          wrap.style.width = `${viewport.width / dpr}px`;
+          wrap.style.height = `${viewport.height / dpr}px`;
+          wrap.dataset.page = String(p - 1);
+          container.appendChild(wrap);
+          slots.current.push({ wrap, rendered: false, rendering: false, page, viewport, dpr });
+        }
 
-        const ctx = canvas.getContext("2d")!;
-        await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+        // IntersectionObserver — render when within ~2 viewport heights
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              const idx = slots.current.findIndex((s) => s.wrap === e.target);
+              if (idx < 0) continue;
+              const slot = slots.current[idx];
+              if (e.isIntersecting && !slot.rendered && !slot.rendering) {
+                slot.rendering = true;
+                renderSlot(slot).finally(() => { slot.rendering = false; slot.rendered = true; });
+              }
+            }
+          },
+          { root: containerRef.current, rootMargin: "200% 0px" }
+        );
+        for (const s of slots.current) io.observe(s.wrap);
+      })();
+
+      async function renderSlot(slot: PageSlot) {
         if (cancelled) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = slot.viewport.width;
+        canvas.height = slot.viewport.height;
+        canvas.style.width = `${slot.viewport.width / slot.dpr}px`;
+        canvas.style.height = `${slot.viewport.height / slot.dpr}px`;
+        canvas.style.display = "block";
+        slot.wrap.appendChild(canvas);
+        const ctx = canvas.getContext("2d")!;
+        try {
+          await slot.page.render({ canvas, canvasContext: ctx, viewport: slot.viewport }).promise;
+        } catch (e) {
+          console.warn("[PdfViewer] render failed", e);
+        }
       }
-    })();
 
-    return () => {
-      cancelled = true;
-      if (mountRef.current) {
-        while (mountRef.current.firstChild)
-          mountRef.current.removeChild(mountRef.current.firstChild);
-      }
-      pageEls.current = [];
-    };
-  }, [data]);
+      return () => {
+        cancelled = true;
+        if (mountRef.current) {
+          while (mountRef.current.firstChild) mountRef.current.removeChild(mountRef.current.firstChild);
+        }
+        slots.current = [];
+      };
+    }, [data, docId]);
 
-  useImperativeHandle(ref, () => ({
-    highlight(pageIndex, bbox) {
-      const el = pageEls.current[pageIndex];
-      if (!el) return;
-      el.querySelectorAll(".rag-highlight").forEach((n) => n.remove());
-      const [x, y, w, h] = bbox;
-      // Pad slightly for visual breathing room
-      const pad = 0.004;
-      const overlay = document.createElement("div");
-      overlay.className = "rag-highlight";
-      overlay.style.left = `${Math.max(0, (x - pad)) * 100}%`;
-      overlay.style.top = `${Math.max(0, (y - pad)) * 100}%`;
-      overlay.style.width = `${Math.min(1, w + pad * 2) * 100}%`;
-      overlay.style.height = `${Math.min(1, h + pad * 2) * 100}%`;
-      el.appendChild(overlay);
-      // Scroll the highlight itself into view (centered) so deeply-placed
-      // matches don't sit below the visible scroll area.
-      overlay.scrollIntoView({ behavior: "smooth", block: "center" });
-    },
-    clearHighlights() {
-      for (const el of pageEls.current)
-        el.querySelectorAll(".rag-highlight").forEach((n) => n.remove());
-    },
-  }));
+    // Arrow-key page navigation
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        const root = containerRef.current;
+        if (!root) return;
+        if (e.key === "PageDown" || e.key === "ArrowDown") {
+          root.scrollBy({ top: root.clientHeight * 0.9, behavior: "smooth" });
+        } else if (e.key === "PageUp" || e.key === "ArrowUp") {
+          root.scrollBy({ top: -root.clientHeight * 0.9, behavior: "smooth" });
+        }
+      };
+      const root = containerRef.current;
+      root?.addEventListener("keydown", onKey);
+      return () => root?.removeEventListener("keydown", onKey);
+    }, []);
 
-  return (
-    <div
-      ref={containerRef}
-      className="h-full overflow-y-auto bg-secondary/30 px-4 py-2 scroll-smooth flex flex-col [scrollbar-gutter:stable]"
-    >
-      <div ref={mountRef} />
-      {!data && (
-        <div
-          className="flex-1 flex items-center justify-center text-muted-foreground"
-          aria-live="polite"
-        >
-          <p className="text-sm">Upload a PDF to begin</p>
-        </div>
-      )}
-      {data && numPages === 0 && (
-        <div
-          className="flex-1 flex items-center justify-center text-muted-foreground"
-          aria-live="polite"
-        >
-          <p className="text-sm animate-pulse">Rendering pages…</p>
-        </div>
-      )}
-    </div>
-  );
-});
+    useImperativeHandle(ref, () => ({
+      highlight(pageIndex, bbox) {
+        // Clear ALL existing highlights first
+        for (const s of slots.current) s.wrap.querySelectorAll(".rag-highlight").forEach((n) => n.remove());
+        const slot = slots.current[pageIndex];
+        if (!slot) return;
+        // Force render if not yet rendered
+        if (!slot.rendered && !slot.rendering) {
+          slot.rendering = true;
+          // Trigger render synchronously by appending; IO will catch up too
+        }
+        const [x, y, w, h] = bbox;
+        const pad = 0.004;
+        const overlay = document.createElement("div");
+        overlay.className = "rag-highlight";
+        overlay.setAttribute("role", "region");
+        overlay.setAttribute("aria-label", `Search match on page ${pageIndex + 1}`);
+        overlay.style.left = `${Math.max(0, x - pad) * 100}%`;
+        overlay.style.top = `${Math.max(0, y - pad) * 100}%`;
+        overlay.style.width = `${Math.min(1, w + pad * 2) * 100}%`;
+        overlay.style.height = `${Math.min(1, h + pad * 2) * 100}%`;
+        slot.wrap.appendChild(overlay);
+        // Smart scroll: smooth for nearby, instant for far jumps
+        const root = containerRef.current;
+        const dist = root ? Math.abs(slot.wrap.offsetTop - root.scrollTop) : 0;
+        const behavior: ScrollBehavior = root && dist > root.clientHeight * 2 ? "auto" : "smooth";
+        overlay.scrollIntoView({ behavior, block: "center" });
+      },
+      clearHighlights() {
+        for (const s of slots.current) s.wrap.querySelectorAll(".rag-highlight").forEach((n) => n.remove());
+      },
+      goToPage(pageIndex) {
+        const slot = slots.current[pageIndex];
+        slot?.wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+      },
+    }));
+
+    return (
+      <div
+        ref={containerRef}
+        tabIndex={0}
+        className="h-full overflow-y-auto bg-secondary/30 px-4 py-2 scroll-smooth flex flex-col [scrollbar-gutter:stable] outline-none focus:ring-1 focus:ring-primary/30"
+      >
+        <div ref={mountRef} />
+        {!data && (
+          <div className="flex-1 flex items-center justify-center text-muted-foreground" aria-live="polite">
+            <p className="text-sm">Upload a PDF to begin</p>
+          </div>
+        )}
+        {data && numPages === 0 && (
+          <div className="flex-1 flex items-center justify-center text-muted-foreground" aria-live="polite">
+            <p className="text-sm animate-pulse">Rendering pages…</p>
+          </div>
+        )}
+      </div>
+    );
+  })
+);

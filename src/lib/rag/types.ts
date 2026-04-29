@@ -13,10 +13,11 @@ export interface Chunk {
   pageIndex: number;
   text: string;
   bbox: BBox;
-  // Bug #7: per-line bboxes for line-accurate highlighting.
   lines?: { text: string; bbox: BBox }[];
   vector?: Float32Array;
 }
+
+export type EmbeddedChunk = Chunk & { vector: Float32Array };
 
 export interface RankedChunk extends Chunk {
   score: number;
