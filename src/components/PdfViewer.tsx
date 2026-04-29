@@ -29,12 +29,14 @@ export const PdfViewer = memo(
     const slots = useRef<PageSlot[]>([]);
     const [numPages, setNumPages] = useState(0);
     const lastDocIdRef = useRef<string | undefined>(undefined);
+    const lastDataRef = useRef<ArrayBuffer | null>(null);
 
     useEffect(() => {
       if (!data || !mountRef.current) return;
-      // Memo guard — same docId, skip re-render
-      if (docId && docId === lastDocIdRef.current) return;
+      // Memo guard — skip only when BOTH docId and underlying buffer identity are unchanged.
+      if (docId && docId === lastDocIdRef.current && data === lastDataRef.current) return;
       lastDocIdRef.current = docId;
+      lastDataRef.current = data;
       let cancelled = false;
       const container = mountRef.current;
       while (container.firstChild) container.removeChild(container.firstChild);

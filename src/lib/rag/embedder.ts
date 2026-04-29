@@ -110,7 +110,11 @@ export async function embedTexts(
       firstBatchDone = true;
     } catch (err) {
       console.warn(`[embedder] batch ${i} failed, zero-padding:`, err);
-      const dim = dimCached ?? 384;
+      if (dimCached === null) {
+        // Unknown embedding dimension on first batch failure; propagate the original error.
+        throw err;
+      }
+      const dim = dimCached;
       for (let j = 0; j < slice.length; j++) out.push(new Float32Array(dim));
       const done = Math.min(i + batch, texts.length);
       onProgress?.(`Embedded ${done}/${texts.length}`, (done / texts.length) * 100);

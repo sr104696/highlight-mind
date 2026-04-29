@@ -124,8 +124,18 @@ export class RagEngine {
     this.abortCtrl?.abort();
     this.abortCtrl = new AbortController();
     const signal = this.abortCtrl.signal;
+    const needReparse = this.pages.every((p) => !p.items || p.items.length === 0);
+    if (needReparse) {
+      if (!this.pdfBytes) throw new Error("Cannot re-index: original PDF bytes unavailable");
+      onProgress("Re-parsing PDF…", 5);
+      const pdf = await loadPdf(this.pdfBytes.slice(0));
+      this.pages = await extractPages(pdf);
+    }
     onProgress("Re-chunking…", 10);
     this.chunks = slidingChunks(this.pages, this.docId, opts.targetTokens, opts.overlapRatio);
+    if (this.chunks.length === 0) {
+      throw new Error("Re-index produced 0 chunks (no extractable text).");
+    }
     onProgress("Indexing BM25…", 30);
     this.bm25 = new BM25(this.chunks);
     onProgress("Embedding…", 40);
