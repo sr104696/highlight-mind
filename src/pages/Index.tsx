@@ -104,6 +104,9 @@ const Index = () => {
           <div className="p-4 border-b border-border space-y-3">
             <div className="flex gap-2">
               <Input
+                id="rag-query"
+                name="query"
+                autoComplete="off"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && runSearch()}
